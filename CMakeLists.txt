@@ -1,30 +1,29 @@
 #
 # Copyright (c) 2019-2020 Kris Jusiak (kris at jusiak dot net)
 #
-# Distributed under the Boost Software License, Version 1.0.
-# (See accompanying file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+# Distributed under the Boost Software License, Version 1.0. (See accompanying file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 #
 option(BOOST_UT_DISABLE_MODULE "Disable ut module" ON)
 
+find_package(target_install_package CONFIG REQUIRED)
+
 if(NOT BOOST_UT_DISABLE_MODULE)
-cmake_minimum_required(VERSION 4.0.0)
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
-set(CMAKE_CXX_MODULE_STD 1)
+  cmake_minimum_required(VERSION 4.0.0)
+  set(CMAKE_CXX_STANDARD 23)
+  set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
+  set(CMAKE_CXX_MODULE_STD 1)
 else()
-cmake_minimum_required(VERSION 3.21...3.25)
+  cmake_minimum_required(VERSION 3.21...3.25)
 endif()
 project(
   ut
   VERSION 2.3.1
-  LANGUAGES CXX
-)
+  LANGUAGES CXX)
 
 if(NOT DEFINED CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD
       20
-      CACHE STRING "Default value for CXX_STANDARD property of targets."
-  )
+      CACHE STRING "Default value for CXX_STANDARD property of targets.")
   option(CMAKE_CXX_STANDARD_REQUIRED "Default value for CXX_STANDARD_REQUIRED property of targets." YES)
   option(CMAKE_CXX_EXTENSIONS "Default value for CXX_EXTENSIONS property of targets." NO)
 endif()
@@ -40,12 +39,13 @@ option(BOOST_UT_USE_WARNINGS_AS_ERORS "Build the tests" ${PROJECT_IS_TOP_LEVEL})
 
 add_library(ut INTERFACE)
 if(NOT BOOST_UT_DISABLE_MODULE)
-add_library(ut_module)
+  add_library(ut_module)
 endif()
-target_include_directories(ut INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
+target_sources(ut INTERFACE FILE_SET HEADERS BASE_DIRS include FILES include/boost/ut.hpp)
+# target_include_directories(ut INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 target_compile_features(ut INTERFACE cxx_std_20)
 if(NOT BOOST_UT_DISABLE_MODULE)
-target_compile_features(ut_module INTERFACE cxx_std_23)
+  target_compile_features(ut_module INTERFACE cxx_std_23)
 endif()
 
 if(BOOST_UT_USE_WARNINGS_AS_ERORS)
@@ -56,10 +56,9 @@ add_custom_target(style COMMENT "Running clang-format")
 add_custom_command(
   TARGET style
   POST_BUILD
-  COMMAND find ${CMAKE_CURRENT_LIST_DIR}/benchmark ${CMAKE_CURRENT_LIST_DIR}/example ${CMAKE_CURRENT_LIST_DIR}/include
-          ${CMAKE_CURRENT_LIST_DIR}/test -iname "*.hpp" -or -iname "*.cpp" | xargs clang-format -i
-  COMMENT "Running clang-format"
-)
+  COMMAND find ${CMAKE_CURRENT_LIST_DIR}/benchmark ${CMAKE_CURRENT_LIST_DIR}/example ${CMAKE_CURRENT_LIST_DIR}/include ${CMAKE_CURRENT_LIST_DIR}/test -iname "*.hpp" -or -iname "*.cpp" | xargs
+          clang-format -i
+  COMMENT "Running clang-format")
 
 if(BOOST_UT_ENABLE_COVERAGE)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
@@ -68,8 +67,7 @@ endif()
 
 if(BOOST_UT_ENABLE_SANITIZERS)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g -fno-omit-frame-pointer
-  -fsanitize=address,leak,undefined"
-  )
+  -fsanitize=address,leak,undefined")
 endif()
 
 if(BOOST_UT_DISABLE_MODULE)
@@ -77,7 +75,7 @@ if(BOOST_UT_DISABLE_MODULE)
 endif()
 
 if(NOT BOOST_UT_DISABLE_MODULE)
-target_sources(ut_module PUBLIC FILE_SET CXX_MODULES FILES include/boost/ut.cppm)
+  target_sources(ut_module PUBLIC FILE_SET CXX_MODULES FILES include/boost/ut.cppm)
 endif()
 
 if(NOT TARGET Boost::ut)
@@ -85,39 +83,10 @@ if(NOT TARGET Boost::ut)
 endif()
 
 if(NOT BOOST_UT_DISABLE_MODULE)
-add_library(Boost::ut_module ALIAS ut_module)
+  add_library(Boost::ut_module ALIAS ut_module)
 endif()
 
-include(GNUInstallDirs)
-include(CMakePackageConfigHelpers)
-
-install(
-  FILES include/boost/ut.hpp include/boost/ut.cppm
-  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/boost
-)
-
-install(
-  TARGETS ut
-  EXPORT ut_Targets
-  INCLUDES DESTINATION include
-)
-install(
-  EXPORT ut_Targets
-  FILE utConfig.cmake
-  NAMESPACE Boost::
-  DESTINATION lib/cmake/ut
-)
-
-write_basic_package_version_file(
-  "utConfigVersion.cmake"
-  VERSION ${PROJECT_VERSION}
-  COMPATIBILITY SameMajorVersion
-  ARCH_INDEPENDENT
-)
-install(
-  FILES "${PROJECT_BINARY_DIR}/utConfigVersion.cmake"
-  DESTINATION lib/cmake/ut
-)
+target_install_package(ut NAMESPACE Boost::)
 
 if(EMSCRIPTEN)
   set(CMAKE_EXECUTABLE_SUFFIX ".js")
