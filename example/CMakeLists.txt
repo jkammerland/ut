@@ -41,6 +41,10 @@ endif()
 # endif()
 
 example(cfg/reporter reporter)
+example(cfg/entry_exit_reporter entry_exit_reporter)
+example(cfg/entry_exit_reporter_fixed entry_exit_reporter_fixed)
+example(cfg/explicit_runner explicit_runner)
+example(cfg/no_global_state no_global_state)
 
 if(NOT WIN32)
   example(abort abort)
