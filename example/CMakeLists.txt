@@ -94,3 +94,8 @@ example(terse terse)
 example(test _test)
 example(tmp tmp)
 example(using using)
+
+# Multiprocess examples
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/multiprocess)
+  add_subdirectory(multiprocess)
+endif()
