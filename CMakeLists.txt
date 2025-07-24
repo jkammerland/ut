@@ -86,7 +86,7 @@ if(NOT BOOST_UT_DISABLE_MODULE)
   add_library(Boost::ut_module ALIAS ut_module)
 endif()
 
-target_install_package(ut NAMESPACE Boost::)
+target_install_package(ut NAMESPACE Boost:: PUBLIC_CMAKE_FILES ${CMAKE_CURRENT_LIST_DIR}/cmake/MPITest.cmake ${CMAKE_CURRENT_LIST_DIR}/cmake/MultiprocessTest.cmake)
 
 if(EMSCRIPTEN)
   set(CMAKE_EXECUTABLE_SUFFIX ".js")
