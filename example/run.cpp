@@ -9,7 +9,7 @@
 
 namespace ut = boost::ut;
 
-ut::suite _ = [] {
+static ut::suite _ = [] {
   using namespace ut;
 
   "test suite"_test = [] {

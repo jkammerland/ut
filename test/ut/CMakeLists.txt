@@ -31,3 +31,9 @@ ut(ut)
 if(WIN32)
   ut(win_compat_test)
 endif()
+
+# Parameterized test examples
+ut(parameterized_basic_test)
+ut(parameterized_types_test)
+ut(parameterized_type_matrix_test)
+ut(parameterized_advanced_test)

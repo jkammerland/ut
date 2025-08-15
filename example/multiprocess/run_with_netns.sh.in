@@ -1,0 +1,38 @@
+#!/bin/bash
+#
+# Run a test executable in an isolated network namespace using bwrap
+# This gives each process its own network stack with separate ephemeral ports
+#
+
+EXECUTABLE="$1"
+shift
+
+# Check if bwrap is available
+if ! command -v bwrap &> /dev/null; then
+    echo "bwrap not found, running without network isolation"
+    exec "$EXECUTABLE" "$@"
+fi
+
+# Generate a unique namespace identifier based on PID and timestamp
+UNIQUE_ID="$$_$(date +%s%N)"
+
+# Run with isolated network namespace
+# Each process gets its own:
+# - Network interfaces (only loopback)
+# - Routing tables
+# - Firewall rules
+# - Port allocations (ephemeral port range)
+exec bwrap \
+    --unshare-net \
+    --ro-bind /usr /usr \
+    --ro-bind /lib /lib \
+    --ro-bind /lib64 /lib64 \
+    --ro-bind /bin /bin \
+    --ro-bind /sbin /sbin \
+    --proc /proc \
+    --dev /dev \
+    --tmpfs /tmp \
+    --tmpfs /run \
+    --setenv NETNS_ID "$UNIQUE_ID" \
+    --die-with-parent \
+    "$EXECUTABLE" "$@"
