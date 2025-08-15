@@ -41,6 +41,10 @@ endif()
 # endif()
 
 example(cfg/reporter reporter)
+example(cfg/entry_exit_reporter entry_exit_reporter)
+example(cfg/entry_exit_reporter_fixed entry_exit_reporter_fixed)
+example(cfg/explicit_runner explicit_runner)
+example(cfg/no_global_state no_global_state)
 
 if(NOT WIN32)
   example(abort abort)
@@ -90,3 +94,8 @@ example(terse terse)
 example(test _test)
 example(tmp tmp)
 example(using using)
+
+# Multiprocess examples
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/multiprocess)
+  add_subdirectory(multiprocess)
+endif()

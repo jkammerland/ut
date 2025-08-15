@@ -3,9 +3,7 @@
 #
 # Distributed under the Boost Software License, Version 1.0. (See accompanying file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 #
-option(BOOST_UT_DISABLE_MODULE "Disable ut module" ON)
-
-find_package(target_install_package CONFIG REQUIRED)
+option(BOOST_UT_DISABLE_MODULE "Disable ut module" OFF)
 
 if(NOT BOOST_UT_DISABLE_MODULE)
   cmake_minimum_required(VERSION 4.0.0)
@@ -20,6 +18,8 @@ project(
   VERSION 2.3.1
   LANGUAGES CXX)
 
+find_package(target_install_package CONFIG REQUIRED)
+
 if(NOT DEFINED CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD
       20
@@ -32,7 +32,7 @@ option(BOOST_UT_ENABLE_MEMCHECK "Run the unit tests and examples under valgrind 
 option(BOOST_UT_ENABLE_COVERAGE "Run coverage" OFF)
 option(BOOST_UT_ENABLE_SANITIZERS "Build with sanitizers" OFF)
 option(BOOST_UT_BUILD_BENCHMARKS "Build the benchmarks" OFF)
-option(BOOST_UT_BUILD_EXAMPLES "Build the examples" ${PROJECT_IS_TOP_LEVEL})
+option(BOOST_UT_BUILD_EXAMPLES "Build the examples" OFF)
 option(BOOST_UT_BUILD_TESTS "Build the tests" ${PROJECT_IS_TOP_LEVEL})
 option(BOOST_UT_ENABLE_INSTALL "Enable install targets" ${PROJECT_IS_TOP_LEVEL})
 option(BOOST_UT_USE_WARNINGS_AS_ERORS "Build the tests" ${PROJECT_IS_TOP_LEVEL})
@@ -42,7 +42,6 @@ if(NOT BOOST_UT_DISABLE_MODULE)
   add_library(ut_module)
 endif()
 target_sources(ut INTERFACE FILE_SET HEADERS BASE_DIRS include FILES include/boost/ut.hpp)
-# target_include_directories(ut INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 target_compile_features(ut INTERFACE cxx_std_20)
 if(NOT BOOST_UT_DISABLE_MODULE)
   target_compile_features(ut_module INTERFACE cxx_std_23)
@@ -84,9 +83,10 @@ endif()
 
 if(NOT BOOST_UT_DISABLE_MODULE)
   add_library(Boost::ut_module ALIAS ut_module)
+  target_install_package(ut_module NAMESPACE Boost:: PUBLIC_CMAKE_FILES ${CMAKE_CURRENT_LIST_DIR}/cmake/MPITest.cmake ${CMAKE_CURRENT_LIST_DIR}/cmake/MultiprocessTest.cmake)
 endif()
 
-target_install_package(ut NAMESPACE Boost::)
+target_install_package(ut NAMESPACE Boost:: PUBLIC_CMAKE_FILES ${CMAKE_CURRENT_LIST_DIR}/cmake/MPITest.cmake ${CMAKE_CURRENT_LIST_DIR}/cmake/MultiprocessTest.cmake)
 
 if(EMSCRIPTEN)
   set(CMAKE_EXECUTABLE_SUFFIX ".js")
