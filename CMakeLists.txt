@@ -74,7 +74,7 @@ if(BOOST_UT_DISABLE_MODULE)
 endif()
 
 if(NOT BOOST_UT_DISABLE_MODULE)
-  target_sources(ut_module PUBLIC FILE_SET CXX_MODULES FILES include/boost/ut.cppm)
+  target_sources(ut_module PUBLIC FILE_SET CXX_MODULES TYPE CXX_MODULES FILES include/boost/ut.cppm)
 endif()
 
 if(NOT TARGET Boost::ut)
