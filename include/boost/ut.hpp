@@ -716,6 +716,13 @@ struct cfg {
   static inline std::string use_colour = "yes";  // <- done
   static inline bool show_lib_identity = false;  // <- done
   static inline std::string wait_for_keypress = "never";
+  static inline std::string run_test;  // for --run-test option
+  static inline std::string filter_pattern;  // for --filter option
+  static inline bool args_parsed = false;
+  static inline bool early_exit_requested = false;  // prevent double parsing
+  static inline int tests_run = 0;  // track number of tests that actually ran
+  static inline bool cfg_run_called = false;  // track if cfg<>.run() was called
+  static inline bool suppress_test_summary = false;  // suppress summary when CLI exits early
 
   static inline const std::vector<option> options = {
       // clang-format off
@@ -732,6 +739,8 @@ struct cfg {
   {"-d, --durations", "", std::ref(show_duration), "show test durations"},
   {"-D, --min-duration", "<seconds>", std::ref(show_min_duration), "show test durations for [...]"},
   {"-f, --input-file", "<filename>", std::ref(input_filename), "load test names to run from a file"},
+  {"--filter", "<pattern>", std::ref(filter_pattern), "run tests matching pattern (supports * and ? wildcards)"},
+  {"--run-test", "<name>", std::ref(run_test), "run specific test by name"},
   {"--list-test-names-only", "", std::ref(show_test_names), "list all/matching test cases names only"},
   {"--list-reporters", "", std::ref(show_reporters), "list all reporters"},
   {"--order <decl|lex|rand>", "", std::ref(sort_order), "test case order (defaults to decl)"},
@@ -753,8 +762,12 @@ struct cfg {
 
   static void print_usage() {
     std::size_t opt_width = 30;
-    std::cout << cfg::executable_name
-              << " [<test name|pattern|tags> ... ] options\n\nwith options:\n";
+    // Show version pattern required by VSCode integration
+    std::cout << "boost-ext/ut v" << (BOOST_UT_VERSION / 100) << "." 
+              << ((BOOST_UT_VERSION % 100) / 10) << "." << (BOOST_UT_VERSION % 10) << "\n";
+    std::cout << "Modern C++ unit testing framework\n\n";
+    std::cout << "Usage: " << cfg::executable_name
+              << " [options]\n\nOptions:\n";
     for (const auto& [cmd, arg, val, description] : cfg::options) {
       std::string s = cmd;
       s.append(" ");
@@ -775,6 +788,19 @@ struct cfg {
   }
 
   static void parse_arg_with_fallback(int argc, const char* argv[]) {
+    // Skip if already parsed to prevent double help output
+    // BUT: allow re-parsing if we're being called from cfg<>.run() with explicit arguments
+    static bool called_from_cfg_run = false;
+    if (args_parsed && !called_from_cfg_run) {
+      return;
+    }
+    
+    // Mark that we're being called from cfg<>.run() when argc > 0 and largc/largv is different
+    if (argc > 0 && argv != nullptr && (cfg::largc != argc || cfg::largv != argv)) {
+      called_from_cfg_run = true;
+      args_parsed = false; // Reset to allow re-parsing
+    }
+    
     //int before call main
     if (argc > 0 && argv != nullptr) {
       cfg::largc = argc;
@@ -786,6 +812,7 @@ struct cfg {
       cfg::largv = nullptr;
     }
     parse(cfg::largc, cfg::largv);
+    args_parsed = true;
   }
 
   static void parse(int argc, const char* argv[]) {
@@ -797,7 +824,20 @@ struct cfg {
     bool found_first_option = false;
     for (auto i = 1U; i < n_args && argv != nullptr; i++) {
       std::string cmd(argv[i]);
-      auto cmd_option = find_arg(cmd);
+      
+      // Check if this is a key=value format
+      std::string option_key = cmd;
+      std::string option_value;
+      bool is_key_value_format = false;
+      
+      auto equals_pos = cmd.find('=');
+      if (equals_pos != std::string::npos) {
+        option_key = cmd.substr(0, equals_pos);
+        option_value = cmd.substr(equals_pos + 1);
+        is_key_value_format = true;
+      }
+      
+      auto cmd_option = find_arg(option_key);
       if (!cmd_option.has_value()) {
         if (found_first_option) {
           std::cerr << "unknown option: '" << cmd << "' run:" << std::endl;
@@ -820,26 +860,35 @@ struct cfg {
         std::get<std::reference_wrapper<bool>>(var).get() = true;
         continue;
       }
-      if ((i + 1) >= n_args) {
-        std::cerr << "missing argument for option " << argv[i] << std::endl;
-        std::exit(-1);
+      
+      // Handle value extraction
+      std::string argument_value;
+      if (is_key_value_format) {
+        // Use the value from key=value format
+        argument_value = option_value;
+      } else {
+        // Use traditional separate argument format
+        if ((i + 1) >= n_args) {
+          std::cerr << "missing argument for option " << argv[i] << std::endl;
+          std::exit(-1);
+        }
+        i += 1;  // skip to next argv for parsing
+        argument_value = argv[i];
       }
-      i += 1;  // skip to next argv for parsing
       if (std::holds_alternative<std::reference_wrapper<std::size_t>>(var)) {
         // parse size argument
         std::size_t last;
-        std::string argument(argv[i]);
-        auto val = static_cast<std::size_t>(std::stoull(argument, &last));
-        if (last != argument.length()) {
-          std::cerr << "cannot parse option of " << argv[i - 1] << " "
-                    << argv[i] << std::endl;
+        auto val = static_cast<std::size_t>(std::stoull(argument_value, &last));
+        if (last != argument_value.length()) {
+          std::cerr << "cannot parse option of " << option_key << " "
+                    << argument_value << std::endl;
           std::exit(-1);
         }
         std::get<std::reference_wrapper<std::size_t>>(var).get() = val;
       }
       if (std::holds_alternative<std::reference_wrapper<std::string>>(var)) {
         // parse string argument
-        std::get<std::reference_wrapper<std::string>>(var).get() = argv[i];
+        std::get<std::reference_wrapper<std::string>>(var).get() = argument_value;
         continue;
       }
     }
@@ -850,8 +899,18 @@ struct cfg {
     }
 
     if (show_lib_identity) {
-      print_identity();
-      std::exit(0);
+      // Don't call std::exit here - let cfg<>.run() handle the exit logic
+      return;
+    }
+
+    // Handle --run-test option by setting exact query pattern
+    if (!run_test.empty()) {
+      query_pattern = run_test;
+    }
+    
+    // Handle --filter option by setting wildcard query pattern
+    if (!filter_pattern.empty()) {
+      query_pattern = filter_pattern;
     }
 
     if (!query_pattern.empty()) {  // simple glob-like search
@@ -872,6 +931,53 @@ struct cfg {
         }
       }
     }
+  }
+
+  // Public API for CLI integration
+  struct run_cfg {
+    bool report_errors{false};
+    int argc{0};
+    const char** argv{nullptr};
+  };
+  
+  static int run(run_cfg rc = {false, 0, nullptr}) {
+    // Mark that cfg<>.run() was called 
+    cfg_run_called = true;
+    
+    // Parse command line arguments first
+    if (rc.argc > 0 && rc.argv != nullptr) {
+      parse_arg_with_fallback(rc.argc, rc.argv);
+    }
+    
+    // CRITICAL FIX: Handle CLI arguments that require early exit
+    if (show_help) {
+      suppress_test_summary = true;  // Prevent destructor from showing test results
+      print_usage();
+      std::exit(0);  // Clean exit without test summary
+    }
+    
+    if (show_lib_identity) {
+      suppress_test_summary = true;
+      print_identity();
+      std::exit(0);
+    }
+    
+    if (show_reporters) {
+      suppress_test_summary = true;
+      std::cout << "available reporter:\n";
+      std::cout << "  console (default)\n";
+      std::cout << "  junit" << std::endl;
+      std::exit(0);
+    }
+    
+    if (show_tests || show_test_names) {
+      suppress_test_summary = true;
+      // At this point tests have already executed, we can't truly list them
+      // This is a limitation that requires architectural changes to fix properly
+      std::exit(0);
+    }
+    
+    return 0;
   }
 };
 
@@ -1491,7 +1597,9 @@ class reporter {
   }
 
   auto on(events::test_skip test_skip) -> void {
-    printer_ << test_skip.name << "...SKIPPED\n";
+    if (detail::cfg::query_pattern.empty()) {
+      printer_ << test_skip.name << "...SKIPPED\n";
+    }
     ++tests_.skip;
   }
 
@@ -1558,7 +1666,7 @@ class reporter {
                 << printer_.colors().none << " (" << asserts_.pass
                 << " asserts in " << tests_.pass << " tests)\n";
 
-      if (tests_.skip) {
+      if (tests_.skip && detail::cfg::query_pattern.empty()) {
         std::cout << tests_.skip << " tests skipped\n";
       }
 
@@ -1726,6 +1834,7 @@ class reporter_junit {
   }
 
   auto on(events::test_begin test_event) -> void {  // starts outermost test
+    detail::cfg::tests_run++;
     check_for_scope(test_event.name);
 
     if (report_type_ == CONSOLE) {
@@ -1774,7 +1883,7 @@ class reporter_junit {
       check_for_scope(test_event.name);
       active_scope_->status = "SKIPPED";
       active_scope_->skipped += 1;
-      if (report_type_ == CONSOLE) {
+      if (report_type_ == CONSOLE && detail::cfg::query_pattern.empty()) {
         lcout_ << '\n' << std::string((2 * active_test_.size()) - 2, ' ');
         lcout_ << "Running \"" << test_event.name << "\"... ";
         lcout_ << color_.skip << "SKIPPED" << color_.none << '\n';
@@ -1829,11 +1938,10 @@ class reporter_junit {
       ss << color_.fail << "FAILED\n" << color_.none;
       print_duration(ss);
     }
-    ss << "in: " << assertion.location.file_name() << ':'
-       << assertion.location.line();
-    ss << color_.fail << " - test condition: ";
-    ss << " [" << std::boolalpha << assertion.expr;
-    ss << color_.fail << ']' << color_.none;
+    // Format for CLI compatibility: "  file:line:FAILED [condition]"
+    ss << "  " << assertion.location.file_name() << ':'
+       << assertion.location.line() << ":FAILED";
+    ss << " [" << std::boolalpha << assertion.expr << ']';
     active_scope_->report_string += ss.str();
     active_scope_->fails++;
     reset_printer();
@@ -1851,6 +1959,17 @@ class reporter_junit {
   auto on(const events::fatal_assertion&) -> void { active_scope_->fails++; }
 
   auto on(events::summary) -> void {
+    // Skip summary output when just listing tests
+    if (detail::cfg::show_tests || detail::cfg::show_test_names) {
+      return;
+    }
+    
+    // Check if --run-test was used but no tests actually ran
+    if (!detail::cfg::run_test.empty() && detail::cfg::tests_run == 0) {
+      std::cerr << "Error: No tests found matching pattern '" << detail::cfg::run_test << "'\n";
+      std::exit(1);
+    }
+    
     std::cout.flush();
     std::cout.rdbuf(cout_save);
     std::ofstream maybe_of;
@@ -1885,24 +2004,42 @@ class reporter_junit {
                              std::ostream& err_stream) {
     for (const auto& [suite_name, suite_result] : results_) {
       if (suite_result.fails) {
-        err_stream
-            << "\n========================================================"
-               "=======================\n"
-            << "Suite " << suite_name << '\n'  //
-            << "tests:   " << (suite_result.n_tests) << " | " << color_.fail
-            << suite_result.fails << " failed" << color_.none << '\n'
-            << "asserts: " << (suite_result.assertions) << " | "
-            << suite_result.passed << " passed"
-            << " | " << color_.fail << suite_result.fails << " failed"
-            << color_.none << '\n';
+        // For CLI compatibility: remove "Suite global" prefix for default suite and adjust format
+        if (suite_name == "global") {
+          err_stream
+              << "\nFAILED"
+              << "\n===============================================================================\n"
+              << "tests:   " << (suite_result.n_tests) << " | " << suite_result.fails << " failed" << '\n'
+              << "asserts: " << (suite_result.assertions) << " | "
+              << (suite_result.assertions - suite_result.fails) << " passed"
+              << " | " << suite_result.fails << " failed" << '\n';
+        } else {
+          err_stream
+              << "\n========================================================"
+                 "=======================\n"
+              << "Suite " << suite_name << '\n'  //
+              << "tests:   " << (suite_result.n_tests) << " | " << color_.fail
+              << suite_result.fails << " failed" << color_.none << '\n'
+              << "asserts: " << (suite_result.assertions) << " | "
+              << suite_result.passed << " passed"
+              << " | " << color_.fail << suite_result.fails << " failed"
+              << color_.none << '\n';
+        }
         std::cerr << std::endl;
       } else {
-        out_stream << color_.pass << "Suite '" << suite_name
-                   << "': all tests passed" << color_.none << " ("
-                   << suite_result.assertions << " asserts in "
-                   << suite_result.n_tests << " tests)\n";
+        // For CLI compatibility: remove "Suite 'global':" prefix for default suite
+        if (suite_name == "global") {
+          out_stream << color_.pass << "All tests passed" << color_.none << " ("
+                     << suite_result.assertions << " asserts in "
+                     << suite_result.n_tests << " tests)\n";
+        } else {
+          out_stream << color_.pass << "Suite '" << suite_name
+                     << "': all tests passed" << color_.none << " ("
+                     << suite_result.assertions << " asserts in "
+                     << suite_result.n_tests << " tests)\n";
+        }
 
-        if (suite_result.skipped) {
+        if (suite_result.skipped && detail::cfg::query_pattern.empty()) {
           std::cout << suite_result.skipped << " tests skipped\n";
         }
 
@@ -2030,6 +2167,11 @@ class runner {
       : reporter_{std::move(reporter)}, suites_(suites_size) {}
 
   ~runner() {
+    // Check if we should suppress summary due to cfg<>.run() CLI handling
+    if (detail::cfg::suppress_test_summary) {
+      return;
+    }
+    
     const auto should_run = not run_;
 
     if (should_run) {
@@ -2084,11 +2226,16 @@ class runner {
       }
     }
 
+    // Ensure CLI arguments are parsed early if available
+    if (!detail::cfg::args_parsed && detail::cfg::largc > 0 && detail::cfg::largv != nullptr) {
+      detail::cfg::parse_arg_with_fallback(detail::cfg::largc, detail::cfg::largv);
+    }
+    
     if (!detail::cfg::query_pattern.empty()) {
-      const static auto regex = detail::cfg::query_regex_pattern;
-      bool matches = utility::regex_match(test.name.data(), regex.c_str());
+      const auto& pattern = detail::cfg::query_pattern;
+      bool matches = utility::is_match(test.name, pattern);
       for (const auto& tag2 : test.tag) {
-        matches |= utility::regex_match(tag2.data(), regex.c_str());
+        matches |= utility::is_match(tag2, pattern);
       }
       if (matches) {
         execute = !detail::cfg::invert_query_pattern;
@@ -2098,9 +2245,6 @@ class runner {
     }
 
     if (detail::cfg::show_tests || detail::cfg::show_test_names) {
-      if (!detail::cfg::show_test_names) {
-        std::cout << "matching test: ";
-      }
       std::cout << test.name << std::endl;
       return;
     }
@@ -2200,6 +2344,41 @@ class runner {
   }
 
   [[nodiscard]] auto run(run_cfg rc = {}) -> bool {
+    // CRITICAL FIX: Parse CLI arguments FIRST if provided
+    if (rc.argc > 0 && rc.argv != nullptr) {
+      detail::cfg::parse_arg_with_fallback(rc.argc, rc.argv);
+    }
+    
+    // Handle CLI arguments that require early exit
+    if (detail::cfg::show_help) {
+      run_ = true;  // Mark as run to prevent destructor from running again
+      detail::cfg::print_usage();
+      std::exit(0);
+    }
+    
+    if (detail::cfg::show_lib_identity) {
+      run_ = true;  // Mark as run to prevent destructor from running again
+      detail::cfg::print_identity();
+      std::exit(0);
+    }
+    
+    if (detail::cfg::show_reporters) {
+      run_ = true;  // Mark as run to prevent destructor from running again
+      std::cout << "available reporter:\n";
+      std::cout << "  console (default)\n";
+      std::cout << "  junit" << std::endl;
+      std::exit(0);
+    }
+    
+    if (detail::cfg::show_tests || detail::cfg::show_test_names) {
+      run_ = true;  // Mark as run to prevent destructor from running again
+      // At this point tests have already executed, but we can show what we know
+      for (const auto& [suite, suite_name] : suites_) {
+        std::cout << suite_name << std::endl;
+      }
+      std::exit(0);
+    }
+    
     run_ = true;
     reporter_.on(events::run_begin{.argc = rc.argc, .argv = rc.argv});
     for (const auto& [suite, suite_name] : suites_) {
@@ -3357,6 +3536,16 @@ using operators::operator not;
 using operators::operator|;
 using operators::operator/;
 using operators::operator>>;
+
+// Public CLI Configuration API
+namespace cli {
+  using run_cfg = detail::cfg::run_cfg;
+  
+  inline int run(run_cfg rc = {false, 0, nullptr}) {
+    return detail::cfg::run(rc);
+  }
+}
+
 }  // namespace boost::inline ext::ut::inline v2_3_1
 
 #if (defined(__GNUC__) || defined(__clang__) || defined(__INTEL_COMPILER)) && \
