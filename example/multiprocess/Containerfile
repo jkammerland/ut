@@ -1,0 +1,14 @@
+FROM fedora:42
+
+RUN dnf update -y && dnf install -y \
+    gcc-c++ cmake ninja-build && \
+    dnf clean all
+
+WORKDIR /app
+COPY . .
+
+RUN rm -rf build && \
+    cmake -B build -G Ninja -DBOOST_UT_BUILD_EXAMPLES=ON && \
+    cmake --build build --target boost_ut_network_coordination
+
+CMD ["./build/example/multiprocess/boost_ut_network_coordination"]

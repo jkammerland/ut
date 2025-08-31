@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  coordinator:
+    build: .
+    command: ./build/example/multiprocess/boost_ut_coordination_test
+    environment:
+      - PROCESS_ROLE=coordinator
+      - PROCESS_ID=coordinator_1
+      - COORDINATION_ID=compose_test
+      - ASSIGNED_PORT=19002
+      - SIMULATED_IP=172.20.0.2
+      - COORD_DIR=/tmp/coordination
+    volumes:
+      - coordination_data:/tmp/coordination
+    networks:
+      test_net:
+        ipv4_address: 172.20.0.2
+        
+  server:
+    build: .
+    command: ./build/example/multiprocess/boost_ut_coordination_test
+    environment:
+      - PROCESS_ROLE=server
+      - PROCESS_ID=server_1  
+      - COORDINATION_ID=compose_test
+      - ASSIGNED_PORT=19003
+      - SIMULATED_IP=172.20.0.3
+      - COORD_DIR=/tmp/coordination
+    volumes:
+      - coordination_data:/tmp/coordination
+    networks:
+      test_net:
+        ipv4_address: 172.20.0.3
+    depends_on:
+      - coordinator
+      
+  client:
+    build: .
+    command: ./build/example/multiprocess/boost_ut_coordination_test
+    environment:
+      - PROCESS_ROLE=client
+      - PROCESS_ID=client_1
+      - COORDINATION_ID=compose_test  
+      - ASSIGNED_PORT=19004
+      - SIMULATED_IP=172.20.0.4
+      - COORD_DIR=/tmp/coordination
+    volumes:
+      - coordination_data:/tmp/coordination
+    networks:
+      test_net:
+        ipv4_address: 172.20.0.4
+    depends_on:
+      - server
+
+volumes:
+  coordination_data:
+
+networks:
+  test_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24

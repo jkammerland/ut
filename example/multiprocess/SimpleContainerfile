@@ -1,0 +1,11 @@
+FROM fedora:42
+
+RUN dnf update -y && dnf install -y gcc-c++ && dnf clean all
+
+WORKDIR /app
+COPY include/ include/
+COPY example/multiprocess/simple_network_test.cpp .
+
+RUN g++ -std=c++20 -Iinclude simple_network_test.cpp -o simple_network_test
+
+CMD ["./simple_network_test"]

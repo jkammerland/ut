@@ -5,7 +5,9 @@ include(${CMAKE_SOURCE_DIR}/cmake/MultiprocessTest.cmake)
 include(${CMAKE_SOURCE_DIR}/cmake/MPITest.cmake)
 
 # MPI Test Example
-ut_require_mpi()  # Skip if MPI not available
+if(ENABLE_UT_MPI_TESTS)
+  ut_require_mpi()  # Skip if MPI not available
+endif()
 
 if(MPI_FOUND)
   # Build MPI test executable
@@ -46,6 +48,10 @@ target_link_libraries(boost_ut_process2 PRIVATE Boost::ut)
 
 add_executable(boost_ut_coordinator coordinator.cpp)
 target_link_libraries(boost_ut_coordinator PRIVATE Boost::ut)
+
+# Clean network coordination executable
+add_executable(boost_ut_network_coordination network_coordination.cpp)
+target_link_libraries(boost_ut_network_coordination PRIVATE Boost::ut)
 
 # Test multiple processes running in parallel
 ut_add_multiprocess_test(
@@ -92,3 +98,6 @@ if(BWRAP_EXECUTABLE)
     TIMEOUT 30
   )
 endif()
+
+# Clean podman-based network coordination
+# Use: podman-compose -f example/multiprocess/compose.yml up

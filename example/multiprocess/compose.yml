@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  coordinator:
+    build:
+      context: ../..
+      dockerfile: example/multiprocess/Containerfile
+    environment:
+      - PROCESS_ROLE=coordinator
+      - SIMULATED_IP=172.20.0.2
+    networks:
+      test_net:
+        ipv4_address: 172.20.0.2
+        
+  server:
+    build:
+      context: ../..
+      dockerfile: example/multiprocess/Containerfile
+    environment:
+      - PROCESS_ROLE=server
+      - SIMULATED_IP=172.20.0.3
+    networks:
+      test_net:
+        ipv4_address: 172.20.0.3
+    depends_on:
+      - coordinator
+      
+  client:
+    build:
+      context: ../..
+      dockerfile: example/multiprocess/Containerfile
+    environment:
+      - PROCESS_ROLE=client
+      - SIMULATED_IP=172.20.0.4
+    networks:
+      test_net:
+        ipv4_address: 172.20.0.4
+    depends_on:
+      - server
+
+networks:
+  test_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
