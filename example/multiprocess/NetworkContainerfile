@@ -1,0 +1,11 @@
+FROM fedora:42
+
+RUN dnf update -y && dnf install -y gcc-c++ boost-devel && dnf clean all
+
+WORKDIR /app
+COPY include/ include/
+COPY example/multiprocess/network_coordination.cpp .
+
+RUN g++ -std=c++20 -Iinclude network_coordination.cpp -lboost_system -o network_coordination
+
+CMD ["./network_coordination"]

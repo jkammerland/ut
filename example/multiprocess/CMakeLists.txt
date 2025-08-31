@@ -1,5 +1,8 @@
 # Multiprocess Testing Examples
 
+# Find Boost for networking support
+find_package(Boost REQUIRED COMPONENTS system)
+
 # Include our multiprocess testing support
 include(${CMAKE_SOURCE_DIR}/cmake/MultiprocessTest.cmake)
 include(${CMAKE_SOURCE_DIR}/cmake/MPITest.cmake)
@@ -51,7 +54,7 @@ target_link_libraries(boost_ut_coordinator PRIVATE Boost::ut)
 
 # Clean network coordination executable
 add_executable(boost_ut_network_coordination network_coordination.cpp)
-target_link_libraries(boost_ut_network_coordination PRIVATE Boost::ut)
+target_link_libraries(boost_ut_network_coordination PRIVATE Boost::ut Boost::system)
 
 # Test multiple processes running in parallel
 ut_add_multiprocess_test(
