@@ -167,11 +167,11 @@ wait_with_timeout() {
     while [ \$count -lt \$timeout ]; do
         if ! kill -0 \$pid 2>/dev/null; then
             # Process has finished
-            wait \$pid 2>/dev/null
+            wait \$pid 2>/dev/null || true
             return \$?
         fi
         sleep 1
-        ((count++))
+        count=\$((count + 1))
     done
     
     # Timeout exceeded
@@ -182,7 +182,7 @@ wait_with_timeout() {
     return 124  # Standard timeout exit code
 }
 
-# Wait for each process
+# Wait for ALL processes first, then check exit codes
 for i in \"\${!PIDS[@]}\"; do
     pid=\${PIDS[\$i]}
     name=\${NAMES[\$i]}
@@ -191,6 +191,12 @@ for i in \"\${!PIDS[@]}\"; do
     wait_with_timeout \$pid \$TIMEOUT
     exit_code=\$?
     EXIT_CODES+=(\$exit_code)
+done
+
+# Now report results
+for i in \"\${!EXIT_CODES[@]}\"; do
+    name=\${NAMES[\$i]}
+    exit_code=\${EXIT_CODES[\$i]}
     
     if [ \$exit_code -eq 0 ]; then
         echo \"\$name completed successfully\"

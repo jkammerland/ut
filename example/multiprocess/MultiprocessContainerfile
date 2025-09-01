@@ -1,0 +1,62 @@
+# Multi-stage build for optimal image size
+FROM fedora:41 as builder
+
+# Install build dependencies
+RUN dnf update -y && \
+    dnf install -y \
+        cmake \
+        ninja-build \
+        gcc-c++ \
+        boost-devel \
+        git \
+        && dnf clean all
+
+# Create working directory
+WORKDIR /build
+
+# Copy source code
+COPY . /src
+
+# Build the project
+RUN cd /src && \
+    cmake -B /build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_FLAGS="-O2 -DNDEBUG" && \
+    cmake --build /build --parallel
+
+# Runtime stage
+FROM fedora:41 as runtime
+
+# Install runtime dependencies only
+RUN dnf update -y && \
+    dnf install -y \
+        boost-system \
+        && dnf clean all
+
+# Create app directory
+WORKDIR /app
+
+# Copy built executables from builder stage
+COPY --from=builder /build/example/multiprocess/boost_ut_network_coordination /app/
+COPY --from=builder /build/example/multiprocess/boost_ut_process1 /app/
+COPY --from=builder /build/example/multiprocess/boost_ut_process2 /app/
+COPY --from=builder /build/example/multiprocess/boost_ut_coordinator /app/
+
+# Create non-root user for security
+RUN groupadd -r uttest && useradd -r -g uttest -d /app uttest && \
+    chown -R uttest:uttest /app
+
+# Switch to non-root user
+USER uttest
+
+# Default command
+CMD ["./boost_ut_network_coordination"]
+
+# Health check to verify the container is ready
+HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=3 \
+    CMD test -x /app/boost_ut_network_coordination || exit 1
+
+# Labels for container metadata
+LABEL maintainer="boost-ut multiprocess testing"
+LABEL description="Container for boost-ut multiprocess network testing"
+LABEL version="1.0"

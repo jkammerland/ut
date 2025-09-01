@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  server:
+    image: @IMAGE@
+    container_name: @PROJECT@-server
+    hostname: server
+    working_dir: /app
+    restart: "no"
+    command: ["@EXECUTABLE@"]
+    depends_on: []
+    environment:
+      - PROCESS_ROLE=server
+      - SIMULATED_IP=@SUBNET_PREFIX@.101
+      - MULTICAST_GROUP=@MULTICAST_GROUP@
+      - MULTICAST_PORT=@MULTICAST_PORT@
+      - PARTICIPANT_COUNT=@PARTICIPANT_COUNT@
+@ADDITIONAL_ENV@
+    labels:
+      - "ut.test=@TEST_NAME@"
+      - "ut.role=server"
+    networks:
+      @NETWORK_NAME@:
+        ipv4_address: @SUBNET_PREFIX@.101
+@LOGGING_CONFIG@
+
+@ADDITIONAL_SERVICES@
+
+networks:
+  @NETWORK_NAME@:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: @NETWORK_SUBNET@
+
+@VOLUMES_SECTION@
