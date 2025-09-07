@@ -64,6 +64,7 @@ target_link_libraries(boost_ut_coordinator PRIVATE Boost::ut)
 add_executable(boost_ut_network_coordination network_coordination.cpp)
 target_link_libraries(boost_ut_network_coordination PRIVATE Boost::ut Boost::system)
 
+
 # Test multiple processes running in parallel
 ut_add_multiprocess_test(
   NAME parallel_process_test
@@ -231,6 +232,45 @@ ut_add_network_parallel_test(
   MULTICAST_GROUP "239.255.1.7"
   MULTICAST_PORT 13007
   ADDITIONAL_ENV "HIGH_PARTICIPANT_MODE=1"
+)
+
+# Basic test with 2 processes
+ut_add_multi_process_test(
+  NAME multi_process_2
+  EXECUTABLES
+    boost_ut_network_coordination   # ID 0 (coordinates)
+    boost_ut_network_coordination   # ID 1
+  TIMEOUT 30
+  MULTICAST_PORT 14000
+)
+
+# Test with 5 processes
+ut_add_multi_process_test(
+  NAME multi_process_5
+  EXECUTABLES
+    boost_ut_network_coordination   # ID 0 (coordinates)
+    boost_ut_network_coordination   # ID 1
+    boost_ut_network_coordination   # ID 2
+    boost_ut_network_coordination   # ID 3
+    boost_ut_network_coordination   # ID 4
+  TIMEOUT 45
+  MULTICAST_PORT 14001
+)
+
+# Test with 8 processes
+ut_add_multi_process_test(
+  NAME multi_process_8
+  EXECUTABLES
+    boost_ut_network_coordination   # ID 0 (coordinates)
+    boost_ut_network_coordination   # ID 1
+    boost_ut_network_coordination   # ID 2
+    boost_ut_network_coordination   # ID 3
+    boost_ut_network_coordination   # ID 4
+    boost_ut_network_coordination   # ID 5
+    boost_ut_network_coordination   # ID 6
+    boost_ut_network_coordination   # ID 7
+  TIMEOUT 60
+  MULTICAST_PORT 14002
 )
 
 # Network Fixture Tests (DEPRECATED - Pipeline Bug)
