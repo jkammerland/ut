@@ -46,7 +46,7 @@ class multiprocess_fixture {
     std::mutex sync_mutex_;
     std::condition_variable sync_cv_;
     std::unordered_set<int> seen_ready_ids_;
-    std::atomic<bool> my_id_registered_{false};
+    bool my_id_registered_{false};  // Protected by sync_mutex_
     
     // Common state
     std::jthread io_thread_;
@@ -90,8 +90,18 @@ public:
     }
     
     ~multiprocess_fixture() {
-        // jthread automatically requests stop and joins
+        // First request stop on all threads
+        if (coordinator_thread_.joinable()) {
+            coordinator_thread_.request_stop();
+        }
+        if (io_thread_.joinable()) {
+            io_thread_.request_stop();
+        }
+
+        // Then stop io_context to break any blocking operations
         io_context_.stop();
+
+        // jthread destructors will now join safely
     }
     
     // Synchronization point - waits until all participants ready (or just self if !wait_for_all)
@@ -129,7 +139,7 @@ public:
             // Just wait until we see our own ID registered
             std::unique_lock<std::mutex> lock(sync_mutex_);
             bool success = sync_cv_.wait_for(lock, std::chrono::seconds(10), [this] {
-                return my_id_registered_.load();
+                return my_id_registered_;
             });
             
             if (!success) {
@@ -192,38 +202,55 @@ private:
     }
     
     void handle_message(const std::vector<std::byte>& data) {
+        // Validate we have data
+        if (data.empty()) {
+            return;  // Ignore empty messages
+        }
+
         std::string msg(reinterpret_cast<const char*>(data.data()), data.size());
-        
-        if (msg.starts_with("REG:")) {
+
+        // Find colon separator for message type validation
+        auto colon_pos = msg.find(':');
+        if (colon_pos == std::string::npos || colon_pos == 0) {
+            return;  // Invalid format - no colon or starts with colon
+        }
+
+        std::string msg_type = msg.substr(0, colon_pos);
+        std::string msg_data = msg.substr(colon_pos + 1);
+
+        if (msg_type == "REG") {
             // Registration message from a participant
+            if (msg_data.empty()) {
+                return;  // Empty ID not allowed
+            }
+
             try {
-                int id = std::stoi(msg.substr(4));
-                
+                int id = std::stoi(msg_data);
+
                 if (id < 0 || id >= participant_count_) {
                     // Invalid ID, ignore
                     return;
                 }
-            
+
                 if (my_id_ == 0) {
                     // Coordinator records the registration
                     std::lock_guard<std::mutex> lock(coord_mutex_);
                     registered_ids_.insert(id);
-                    std::cout << "[Coordinator] Registered ID " << id 
+                    std::cout << "[Coordinator] Registered ID " << id
                              << " (total: " << registered_ids_.size() << ")" << std::endl;
                 }
             } catch (const std::exception&) {
-                // Malformed message, ignore
+                // Non-numeric ID, ignore
                 return;
             }
-        } 
-        else if (msg.starts_with("READY:")) {
+        }
+        else if (msg_type == "READY") {
             // Ready list from coordinator
-            std::string id_list = msg.substr(6);
             std::unordered_set<int> ready_ids;
-            
+
             // Parse comma-separated IDs
-            if (!id_list.empty()) {
-                std::stringstream ss(id_list);
+            if (!msg_data.empty()) {
+                std::stringstream ss(msg_data);
                 std::string id_str;
                 while (std::getline(ss, id_str, ',')) {
                     if (!id_str.empty()) {
@@ -235,17 +262,17 @@ private:
                     }
                 }
             }
-            
+
             // Update our view of ready participants
             {
                 std::lock_guard<std::mutex> lock(sync_mutex_);
                 seen_ready_ids_ = ready_ids;
-                
+
                 // Check if our ID is in the ready list
                 if (ready_ids.count(my_id_) > 0) {
                     my_id_registered_ = true;
                 }
-                
+
                 // Wake up any waiters
                 sync_cv_.notify_all();
             }
@@ -281,8 +308,12 @@ int main() {
     if (!id_str.empty()) {
         try {
             my_id = std::stoi(id_str);
+            if (my_id < 0) {
+                std::cerr << "PROCESS_ID must be non-negative: " << id_str << std::endl;
+                return 1;
+            }
         } catch (...) {
-            std::cerr << "Invalid PROCESS_ID: " << id_str << std::endl;
+            std::cerr << "Invalid PROCESS_ID (must be a number): " << id_str << std::endl;
             return 1;
         }
     }
