@@ -64,6 +64,11 @@ target_link_libraries(boost_ut_coordinator PRIVATE Boost::ut)
 add_executable(boost_ut_network_coordination network_coordination.cpp)
 target_link_libraries(boost_ut_network_coordination PRIVATE Boost::ut Boost::system)
 
+# Primitive tests for network coordination
+add_executable(test_network_coordination_primitives ${CMAKE_SOURCE_DIR}/tests/test_network_coordination_primitives.cpp)
+target_link_libraries(test_network_coordination_primitives PRIVATE Boost::ut Boost::system)
+add_test(NAME test_network_primitives COMMAND test_network_coordination_primitives)
+
 
 # Test multiple processes running in parallel
 ut_add_multiprocess_test(
