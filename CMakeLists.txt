@@ -77,10 +77,15 @@ endif()
 
 if(NOT BOOST_UT_DISABLE_MODULE)
   add_library(Boost::ut_module ALIAS ut_module)
-  target_install_package(ut_module NAMESPACE Boost:: PUBLIC_CMAKE_FILES ${CMAKE_CURRENT_LIST_DIR}/cmake/MPITest.cmake ${CMAKE_CURRENT_LIST_DIR}/cmake/MultiprocessTest.cmake)
+  target_install_package(ut_module NAMESPACE Boost:: INCLUDE_ON_FIND_PACKAGE
+    ${CMAKE_CURRENT_LIST_DIR}/cmake/MPITest.cmake
+    ${CMAKE_CURRENT_LIST_DIR}/cmake/MultiprocessTest.cmake)
 endif()
 
-target_install_package(ut NAMESPACE Boost:: PUBLIC_CMAKE_FILES ${CMAKE_CURRENT_LIST_DIR}/cmake/MPITest.cmake ${CMAKE_CURRENT_LIST_DIR}/cmake/MultiprocessTest.cmake)
+target_install_package(ut NAMESPACE Boost:: INCLUDE_ON_FIND_PACKAGE
+  ${CMAKE_CURRENT_LIST_DIR}/cmake/MPITest.cmake
+  ${CMAKE_CURRENT_LIST_DIR}/cmake/MultiprocessTest.cmake
+  ${CMAKE_CURRENT_LIST_DIR}/cmake/UtMultiprocess.cmake)
 
 if(EMSCRIPTEN)
   set(CMAKE_EXECUTABLE_SUFFIX ".js")

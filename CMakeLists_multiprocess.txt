@@ -1,0 +1,31 @@
+# Add this to the main CMakeLists.txt or as a separate subproject
+
+# Create multiprocess testing library
+add_library(ut_multiprocess INTERFACE)
+
+# Add the multiprocess header
+target_sources(ut_multiprocess INTERFACE
+  FILE_SET HEADERS
+  BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include
+  FILES include/boost/ut/multiprocess.hpp
+)
+
+# Link dependencies
+find_package(Boost REQUIRED COMPONENTS system)
+target_link_libraries(ut_multiprocess INTERFACE Boost::system)
+
+# Require C++20
+target_compile_features(ut_multiprocess INTERFACE cxx_std_20)
+
+# Install the multiprocess library
+target_install_package(ut_multiprocess
+  NAMESPACE Boost::
+  PUBLIC_DEPENDENCIES "Boost REQUIRED COMPONENTS system"
+  INCLUDE_ON_FIND_PACKAGE
+    ${CMAKE_CURRENT_LIST_DIR}/cmake/UtMultiprocess.cmake
+)
+
+# Create alias for consistency
+if(NOT TARGET Boost::ut_multiprocess)
+  add_library(Boost::ut_multiprocess ALIAS ut_multiprocess)
+endif()
