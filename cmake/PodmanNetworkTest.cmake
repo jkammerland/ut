@@ -1,6 +1,19 @@
 # Podman Network Testing Support for boost.ut
 # Provides containerized multiprocess testing with full network isolation
 # Each container gets its own IP address and network stack
+#
+# NOTE: For simple multiprocess tests, use PodmanMultiprocessTest.cmake instead!
+# This file provides advanced features for complex network scenarios.
+#
+# Simple symmetric API (recommended):
+#   include(PodmanMultiprocessTest)
+#   ut_add_podman_multiprocess_test(NAME test TARGET exe PARTICIPANTS 3)
+#
+# This file is for advanced use cases requiring:
+# - Custom network configurations
+# - Specific IP assignments
+# - Complex client-server roles
+# - Custom Docker image builds
 
 # Check if podman is available
 find_program(PODMAN_EXECUTABLE podman)
