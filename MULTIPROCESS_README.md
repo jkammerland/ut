@@ -2,6 +2,9 @@
 
 A header-only C++20 library for coordinating multiple processes in distributed tests. Works with boost::ut, Google Test, and doctest.
 
+> **🆕 Podman Support for Unique IPs!**
+> Need each process to have a different IP address? See [PODMAN_MULTIPROCESS_TESTING.md](docs/PODMAN_MULTIPROCESS_TESTING.md) for rootless container-based testing where each process gets its own IP address.
+
 ## Features
 
 - **ID-based coordination**: Each process has a unique ID (0 to N-1)

@@ -15,6 +15,9 @@ include(${CMAKE_SOURCE_DIR}/cmake/ParallelProcessTest.cmake)
 include(${CMAKE_SOURCE_DIR}/cmake/PodmanComposeTest.cmake)
 include(${CMAKE_SOURCE_DIR}/cmake/SimpleComposeTest.cmake)
 
+# Enable Podman tests for CI
+include(${CMAKE_SOURCE_DIR}/cmake/EnablePodmanTests.cmake)
+
 # MPI Test Example
 if(ENABLE_UT_MPI_TESTS)
   ut_require_mpi()  # Skip if MPI not available

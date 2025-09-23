@@ -1,5 +1,10 @@
 # Multiprocess Testing Support for boost.ut
 # Allows running multiple test executables as a single CTest test
+#
+# For testing with unique IP addresses per process, see:
+#   - PodmanMultiprocessTest.cmake (simple symmetric API)
+#   - PodmanMultiprocessTest2.cmake (different executables support)
+#   - docs/PODMAN_MULTIPROCESS_TESTING.md (comprehensive guide)
 
 # Function to run multiple processes and collect their return codes
 # Returns 0 only if all processes succeed

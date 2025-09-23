@@ -1,0 +1,40 @@
+name: Podman Multiprocess Test (Fedora 42)
+
+on:
+  push:
+    branches: [ main, master, network-testing ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  test-podman-fedora42:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:42
+      options: --privileged  # Required for podman-in-docker
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        dnf install -y cmake ninja-build gcc-c++ boost-devel boost-system podman make jq
+
+    - name: Build test executable
+      run: |
+        cmake -B build -G Ninja
+        cmake --build build --target boost_ut_network_coordination
+
+    - name: Run Podman multiprocess test
+      run: |
+        chmod +x ci/test-podman-simple.sh
+        ./ci/test-podman-simple.sh
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results
+        path: build-ci/Testing/

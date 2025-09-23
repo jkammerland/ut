@@ -1,0 +1,10 @@
+# Simple container for multiprocess testing
+FROM fedora:latest
+
+# Install required libraries
+RUN dnf install -y boost-system libstdc++ && dnf clean all
+
+# Set working directory
+WORKDIR /test
+
+# The executable will be bind-mounted at runtime

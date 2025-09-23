@@ -105,7 +105,7 @@ for ((i=0; i<PARTICIPANTS; i++)); do
   echo \"  Starting process \$i with executable: \$(basename \$EXEC)\"
 
   CID=\$(podman run -d --name \${TEST_NAME}-\$i --network \$NETWORK_NAME \\
-    -v \"\$EXEC:/test:ro\" \\
+    -v \"\$EXEC:/test:ro,Z\" \\
     -v /usr/lib64:/hostlib:ro \\
     -e LD_LIBRARY_PATH=/hostlib \\
     -e PROCESS_ID=\$i \\
