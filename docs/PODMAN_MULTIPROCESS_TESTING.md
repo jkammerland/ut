@@ -47,8 +47,8 @@ ut_add_podman_multiprocess_test(
 ### Advanced Usage - Different Executables
 
 ```cmake
-# In your CMakeLists.txt
-include(${CMAKE_SOURCE_DIR}/cmake/PodmanMultiprocessTest2.cmake)
+# In your CMakeLists.txt (same include as basic usage)
+include(${CMAKE_SOURCE_DIR}/cmake/PodmanMultiprocessTest.cmake)
 
 # Build different executables
 add_executable(server server.cpp)
@@ -206,9 +206,8 @@ podman network rm test-net
 
 ## File Locations
 
-- **Simple API**: `/home/ai-dev1/repos/ut/cmake/PodmanMultiprocessTest.cmake`
-- **Advanced API**: `/home/ai-dev1/repos/ut/cmake/PodmanMultiprocessTest2.cmake`
-- **Examples**: `/home/ai-dev1/repos/ut/example/multiprocess/podman_*.cmake`
+- **CMake API**: `/home/ai-dev1/repos/ut/cmake/PodmanMultiprocessTest.cmake`
+- **CI Scripts**: `/home/ai-dev1/repos/ut/ci/test-podman-simple.sh`
 - **This Guide**: `/home/ai-dev1/repos/ut/docs/PODMAN_MULTIPROCESS_TESTING.md`
 
 ## Limitations & Notes

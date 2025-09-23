@@ -1,5 +1,5 @@
-# Simplified Podman Multiprocess Testing
-# Symmetric API with regular multiprocess tests - just add executables and go
+# Podman Multiprocess Testing - Symmetric API with regular multiprocess tests
+# Each container gets a unique IP address for testing distributed systems
 
 find_program(PODMAN_EXECUTABLE podman)
 
@@ -8,60 +8,92 @@ if(NOT PODMAN_EXECUTABLE)
   return()
 endif()
 
-# Main function - symmetric with ut_add_multiprocess_test
+# Main function - supports both single TARGET and multiple TARGETS
 function(ut_add_podman_multiprocess_test)
   set(options "")
   set(oneValueArgs NAME TARGET PARTICIPANTS TIMEOUT)
-  set(multiValueArgs "")
+  set(multiValueArgs TARGETS)
 
   cmake_parse_arguments(PM "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
-  # Validate required parameters
+  # Validate parameters
   if(NOT PM_NAME)
     message(FATAL_ERROR "ut_add_podman_multiprocess_test: NAME is required")
   endif()
 
-  if(NOT PM_TARGET)
-    message(FATAL_ERROR "ut_add_podman_multiprocess_test: TARGET is required")
+  # Support both single TARGET and multiple TARGETS
+  if(PM_TARGET AND PM_TARGETS)
+    message(FATAL_ERROR "ut_add_podman_multiprocess_test: Use either TARGET or TARGETS, not both")
   endif()
 
-  if(NOT PM_PARTICIPANTS)
-    set(PM_PARTICIPANTS 2)
+  if(NOT PM_TARGET AND NOT PM_TARGETS)
+    message(FATAL_ERROR "ut_add_podman_multiprocess_test: Either TARGET or TARGETS is required")
+  endif()
+
+  # If single TARGET provided, use it for all participants
+  if(PM_TARGET)
+    if(NOT PM_PARTICIPANTS)
+      set(PM_PARTICIPANTS 2)
+    endif()
+    # Create list with same target repeated
+    set(EXEC_TARGETS)
+    foreach(i RANGE 1 ${PM_PARTICIPANTS})
+      list(APPEND EXEC_TARGETS ${PM_TARGET})
+    endforeach()
+  else()
+    # Multiple TARGETS provided
+    set(EXEC_TARGETS ${PM_TARGETS})
+    list(LENGTH EXEC_TARGETS PM_PARTICIPANTS)
   endif()
 
   if(NOT PM_TIMEOUT)
     set(PM_TIMEOUT 30)
   endif()
 
-  # Get target's executable path
-  set(EXEC_PATH "$<TARGET_FILE:${PM_TARGET}>")
+  # Build list of executable paths
+  set(EXEC_PATHS "")
+  foreach(target ${EXEC_TARGETS})
+    list(APPEND EXEC_PATHS "$<TARGET_FILE:${target}>")
+  endforeach()
 
-  # Create test script that runs containers with unique IPs
+  # Create test script
   set(TEST_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/${PM_NAME}_podman.sh")
+
+  # Generate script with array of executables
+  string(REPLACE ";" " " EXEC_PATHS_STR "${EXEC_PATHS}")
 
   file(GENERATE OUTPUT "${TEST_SCRIPT}" CONTENT "#!/bin/bash
 # Auto-generated podman multiprocess test
 set -e
 
-EXEC_PATH='${EXEC_PATH}'
+# Array of executables
+EXEC_PATHS=(${EXEC_PATHS_STR})
 PARTICIPANTS=${PM_PARTICIPANTS}
 TEST_NAME='${PM_NAME}'
 TIMEOUT=${PM_TIMEOUT}
 
-# Ensure executable exists
-if [ ! -f \"\$EXEC_PATH\" ]; then
-  echo \"Error: Executable not found: \$EXEC_PATH\"
-  exit 1
-fi
+# Verify all executables exist
+for ((i=0; i<PARTICIPANTS; i++)); do
+  if [ ! -f \"\${EXEC_PATHS[\$i]}\" ]; then
+    echo \"Error: Executable not found: \${EXEC_PATHS[\$i]}\"
+    exit 1
+  fi
+done
 
-# Create unique network for this test
+# Create unique network with retry on conflict
 NETWORK_NAME=\"\${TEST_NAME}-net-\$\$\"
-SUBNET=\"10.\$((RANDOM % 100 + 100)).0.0/24\"
+for attempt in {1..5}; do
+  SUBNET=\"10.\$((RANDOM % 200 + 50)).0.0/24\"
+  if podman network create \$NETWORK_NAME --subnet \$SUBNET 2>/dev/null; then
+    echo \"Created network \$NETWORK_NAME with subnet \$SUBNET\"
+    break
+  fi
+  if [ \$attempt -eq 5 ]; then
+    echo \"Failed to create network after 5 attempts\"
+    exit 1
+  fi
+done
 
-echo \"Creating network \$NETWORK_NAME with subnet \$SUBNET\"
-podman network create \$NETWORK_NAME --subnet \$SUBNET || exit 1
-
-# Function to cleanup on exit
 cleanup() {
   echo \"Cleaning up...\"
   for ((i=0; i<PARTICIPANTS; i++)); do
@@ -71,15 +103,26 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Start containers - each gets unique IP automatically
+# Detect library path for different distros
+if [ -d \"/usr/lib64\" ]; then
+  HOST_LIB_PATH=\"/usr/lib64\"
+elif [ -d \"/usr/lib/x86_64-linux-gnu\" ]; then
+  HOST_LIB_PATH=\"/usr/lib/x86_64-linux-gnu\"
+else
+  HOST_LIB_PATH=\"/usr/lib\"
+fi
+
+# Start containers with different executables
+echo \"Starting \$PARTICIPANTS processes...\"
 CONTAINER_IDS=()
-echo \"Starting \$PARTICIPANTS processes in containers with unique IPs...\"
 
 for ((i=0; i<PARTICIPANTS; i++)); do
-  # Use fedora for glibc compatibility
+  EXEC=\"\${EXEC_PATHS[\$i]}\"
+  EXEC_NAME=\$(basename \$EXEC)
+
   CID=\$(podman run -d --name \${TEST_NAME}-\$i --network \$NETWORK_NAME \\
-    -v \"\$EXEC_PATH:/test:ro,Z\" \\
-    -v /usr/lib64:/hostlib:ro \\
+    -v \"\$EXEC:/test:ro,Z\" \\
+    -v \"\$HOST_LIB_PATH:/hostlib:ro\" \\
     -e LD_LIBRARY_PATH=/hostlib \\
     -e PROCESS_ID=\$i \\
     -e PARTICIPANT_COUNT=\$PARTICIPANTS \\
@@ -89,36 +132,41 @@ for ((i=0; i<PARTICIPANTS; i++)); do
 
   CONTAINER_IDS+=(\$CID)
 
-  # Get and display IP
-  sleep 0.2
-  IP=\$(podman inspect \${TEST_NAME}-\$i 2>/dev/null | \\
-       grep '\"IPAddress\"' | head -1 | cut -d'\"' -f4)
-  echo \"  Process \$i started with IP: \$IP\"
+  # Get IP with retry
+  for retry in {1..3}; do
+    sleep 0.3
+    IP=\$(podman inspect \${TEST_NAME}-\$i 2>/dev/null | \\
+         grep '\"IPAddress\"' | head -1 | cut -d'\"' -f4)
+    if [ -n \"\$IP\" ]; then
+      echo \"  Process \$i (\$EXEC_NAME): IP=\$IP\"
+      break
+    fi
+  done
 done
 
-# Wait for completion with timeout
-echo \"Waiting for processes to complete (timeout: \${TIMEOUT}s)...\"
+# Wait for completion
+echo \"Waiting for processes (timeout: \${TIMEOUT}s)...\"
 SUCCESS=true
 
 for ((i=0; i<PARTICIPANTS; i++)); do
   if timeout \$TIMEOUT podman wait \${TEST_NAME}-\$i >/dev/null 2>&1; then
     EXIT_CODE=\$(podman inspect \${TEST_NAME}-\$i --format='{{.State.ExitCode}}')
-    if [ \"\$EXIT_CODE\" != \"0\" ]; then
-      echo \"Process \$i failed with exit code \$EXIT_CODE\"
-      podman logs \${TEST_NAME}-\$i | tail -20
-      SUCCESS=false
+    if [ \"\$EXIT_CODE\" = \"0\" ]; then
+      echo \"  Process \$i: ✓ Success\"
     else
-      echo \"Process \$i completed successfully\"
+      echo \"  Process \$i: ✗ Failed (exit code \$EXIT_CODE)\"
+      podman logs \${TEST_NAME}-\$i 2>&1 | tail -5
+      SUCCESS=false
     fi
   else
-    echo \"Process \$i timed out\"
-    podman logs \${TEST_NAME}-\$i | tail -20
+    echo \"  Process \$i: ✗ Timeout\"
+    podman logs \${TEST_NAME}-\$i 2>&1 | tail -5
     SUCCESS=false
   fi
 done
 
 if \$SUCCESS; then
-  echo \"✓ All processes completed successfully with unique IPs\"
+  echo \"✓ All processes completed successfully\"
   exit 0
 else
   echo \"✗ Some processes failed\"
@@ -139,10 +187,15 @@ fi
   set_tests_properties(${PM_NAME} PROPERTIES
     TIMEOUT ${PM_TIMEOUT}
     LABELS "podman;multiprocess;network"
-    ENVIRONMENT "PODMAN_TEST=1"
   )
 
-  message(STATUS "Added podman multiprocess test: ${PM_NAME} with ${PM_PARTICIPANTS} participants")
+  # Report what was added
+  if(PM_TARGET)
+    message(STATUS "Added podman multiprocess test: ${PM_NAME} with ${PM_PARTICIPANTS} instances of ${PM_TARGET}")
+  else()
+    list(LENGTH EXEC_TARGETS num_targets)
+    message(STATUS "Added podman multiprocess test: ${PM_NAME} with ${num_targets} different executables")
+  endif()
 endfunction()
 
 # Batch version - run multiple tests with different participant counts
@@ -165,29 +218,4 @@ function(ut_add_podman_multiprocess_batch_test)
       TIMEOUT ${PMB_TIMEOUT}
     )
   endforeach()
-endfunction()
-
-# Helper to check if target should use podman (e.g., needs unique IPs)
-function(ut_use_podman_if_needed)
-  set(oneValueArgs TARGET NAME PARTICIPANTS)
-  cmake_parse_arguments(UPN "" "${oneValueArgs}" "" ${ARGN})
-
-  # Check if test requires unique IPs (you can add detection logic here)
-  # For now, provide both versions and let user choose
-
-  if(PODMAN_EXECUTABLE)
-    # Add podman version
-    ut_add_podman_multiprocess_test(
-      NAME "${UPN_NAME}_podman"
-      TARGET ${UPN_TARGET}
-      PARTICIPANTS ${UPN_PARTICIPANTS}
-    )
-  endif()
-
-  # Add regular version
-  ut_add_multiprocess_test(
-    NAME "${UPN_NAME}_local"
-    TARGET ${UPN_TARGET}
-    PARTICIPANTS ${UPN_PARTICIPANTS}
-  )
 endfunction()
