@@ -21,6 +21,8 @@
 #include <iostream>
 #include <array>
 #include <memory>
+#include <cstdint>
+#include <utility>
 
 namespace test::multiprocess {
 
@@ -48,6 +50,7 @@ class fixture {
     // Coordinator state (ID 0 only)
     std::mutex coord_mutex_;
     std::unordered_set<int> registered_ids_;
+    std::uint64_t coordinator_epoch_{0};
     std::jthread coordinator_thread_;
 
     // Participant state
@@ -55,10 +58,13 @@ class fixture {
     std::condition_variable sync_cv_;
     std::unordered_set<int> seen_ready_ids_;
     bool my_id_registered_{false};  // Protected by sync_mutex_
+    std::string active_checkpoint_;
 
     // Common state
     std::jthread io_thread_;
     std::array<std::byte, 500> receive_buffer_;
+    std::atomic<std::uint64_t> epoch_counter_{0};
+    std::atomic<std::uint64_t> active_epoch_{0};
 
 public:
     fixture(int id, int count,
@@ -119,8 +125,25 @@ public:
 
     // Synchronization point - waits until all participants ready
     void sync_point(const std::string& checkpoint_name = "default") {
+        // Establish a new epoch for this checkpoint
+        const std::uint64_t epoch = epoch_counter_.fetch_add(1, std::memory_order_acq_rel) + 1;
+        {
+            std::lock_guard<std::mutex> lock(sync_mutex_);
+            active_epoch_.store(epoch, std::memory_order_release);
+            active_checkpoint_ = checkpoint_name;
+            my_id_registered_ = false;
+            seen_ready_ids_.clear();
+        }
+
+        if (my_id_ == 0) {
+            std::lock_guard<std::mutex> lock(coord_mutex_);
+            coordinator_epoch_ = epoch;
+            registered_ids_.clear();
+        }
+
         // Prepare registration message
-        std::string reg_msg = "REG:" + std::to_string(my_id_);
+        std::string reg_msg = "REG:" + std::to_string(epoch) + ":" + std::to_string(my_id_);
+        send_message(reg_msg);
 
         // Use jthread for registration sender
         std::jthread registration_sender([this, reg_msg](std::stop_token st) {
@@ -133,7 +156,10 @@ public:
         if constexpr (wait_for_all) {
             // Wait until we see our ID in the ready list AND all IDs are ready
             std::unique_lock<std::mutex> lock(sync_mutex_);
-            bool success = sync_cv_.wait_for(lock, std::chrono::seconds(30), [this] {
+            bool success = sync_cv_.wait_for(lock, std::chrono::seconds(30), [this, epoch] {
+                if (active_epoch_.load(std::memory_order_acquire) != epoch) {
+                    return false;
+                }
                 return my_id_registered_ &&
                        seen_ready_ids_.size() >= static_cast<size_t>(participant_count_);
             });
@@ -147,13 +173,15 @@ public:
                 for (int id : seen_ready_ids_) {
                     ss << id << " ";
                 }
+                ss << "(epoch " << epoch << ")";
                 throw std::runtime_error(ss.str());
             }
         } else {
             // Just wait until we see our own ID registered
             std::unique_lock<std::mutex> lock(sync_mutex_);
-            bool success = sync_cv_.wait_for(lock, std::chrono::seconds(10), [this] {
-                return my_id_registered_;
+            bool success = sync_cv_.wait_for(lock, std::chrono::seconds(10), [this, epoch] {
+                return active_epoch_.load(std::memory_order_acquire) == epoch &&
+                       my_id_registered_;
             });
 
             if (!success) {
@@ -173,13 +201,20 @@ public:
     bool is_coordinator() const { return my_id_ == 0; }
 
 private:
-    void send_message(const std::string& msg) {
-        try {
-            std::vector<std::byte> data(msg.begin(), msg.end());
-            multicast_socket_.send_to(boost::asio::buffer(data), multicast_endpoint_);
-        } catch (...) {
-            // Ignore send errors
+    void send_message(std::string msg) {
+        if (io_context_.stopped()) {
+            return;
         }
+
+        auto payload = std::make_shared<std::string>(std::move(msg));
+        boost::asio::post(io_context_, [this, payload]() {
+            multicast_socket_.async_send_to(
+                boost::asio::buffer(*payload),
+                multicast_endpoint_,
+                [payload](const boost::system::error_code&, std::size_t) {
+                    // Ignore send result
+                });
+        });
     }
 
     void coordinator_loop(std::stop_token st) {
@@ -187,20 +222,22 @@ private:
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
             // Build ready list
-            std::stringstream ss;
-            ss << "READY:";
+            std::string ready_message;
             {
                 std::lock_guard<std::mutex> lock(coord_mutex_);
+                std::stringstream ss;
+                ss << "READY:" << coordinator_epoch_ << ":";
                 bool first = true;
                 for (int id : registered_ids_) {
                     if (!first) ss << ",";
                     ss << id;
                     first = false;
                 }
+                ready_message = ss.str();
             }
 
             // Broadcast ready list
-            send_message(ss.str());
+            send_message(std::move(ready_message));
         }
     }
 
@@ -222,60 +259,72 @@ private:
         std::string msg_data = msg.substr(colon_pos + 1);
 
         if (msg_type == "REG") {
-            // Registration message from a participant
-            if (msg_data.empty()) {
-                return;  // Empty ID not allowed
+            // Expected format: REG:<epoch>:<id>
+            auto epoch_sep = msg_data.find(':');
+            if (epoch_sep == std::string::npos) {
+                return;
             }
 
+            std::string epoch_str = msg_data.substr(0, epoch_sep);
+            std::string id_str = msg_data.substr(epoch_sep + 1);
+
             try {
-                int id = std::stoi(msg_data);
+                std::uint64_t epoch = std::stoull(epoch_str);
+                int id = std::stoi(id_str);
 
                 if (id < 0 || id >= participant_count_) {
-                    // Invalid ID, ignore
                     return;
                 }
 
                 if (my_id_ == 0) {
-                    // Coordinator records the registration
                     std::lock_guard<std::mutex> lock(coord_mutex_);
-                    registered_ids_.insert(id);
+                    if (epoch == coordinator_epoch_) {
+                        registered_ids_.insert(id);
+                    }
                 }
             } catch (const std::exception&) {
-                // Non-numeric ID, ignore
                 return;
             }
         }
         else if (msg_type == "READY") {
-            // Ready list from coordinator
+            // Expected format: READY:<epoch>:<id,id,...>
+            auto epoch_sep = msg_data.find(':');
+            if (epoch_sep == std::string::npos) {
+                return;
+            }
+
+            std::string epoch_str = msg_data.substr(0, epoch_sep);
+            std::string ids_str = msg_data.substr(epoch_sep + 1);
+
             std::unordered_set<int> ready_ids;
 
-            // Parse comma-separated IDs
-            if (!msg_data.empty()) {
-                std::stringstream ss(msg_data);
+            if (!ids_str.empty()) {
+                std::stringstream ss(ids_str);
                 std::string id_str;
                 while (std::getline(ss, id_str, ',')) {
                     if (!id_str.empty()) {
                         try {
                             ready_ids.insert(std::stoi(id_str));
                         } catch (const std::exception&) {
-                            // Malformed ID, skip it
+                            continue;
                         }
                     }
                 }
             }
 
-            // Update our view of ready participants
-            {
-                std::lock_guard<std::mutex> lock(sync_mutex_);
-                seen_ready_ids_ = ready_ids;
+            try {
+                std::uint64_t epoch = std::stoull(epoch_str);
 
-                // Check if our ID is in the ready list
-                if (ready_ids.count(my_id_) > 0) {
-                    my_id_registered_ = true;
+                std::lock_guard<std::mutex> lock(sync_mutex_);
+                if (active_epoch_.load(std::memory_order_acquire) != epoch) {
+                    return;
                 }
 
-                // Wake up any waiters
+                seen_ready_ids_ = std::move(ready_ids);
+                my_id_registered_ = seen_ready_ids_.count(my_id_) > 0;
                 sync_cv_.notify_all();
+            } catch (const std::exception&) {
+                return;
             }
         }
     }
